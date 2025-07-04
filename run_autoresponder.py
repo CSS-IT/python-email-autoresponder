@@ -186,12 +186,12 @@ def delete_email(mail):
         statistics['mails_in_trash'] += 1
     else:
         log_warning("Copying email to trash failed. Reason: " + str(result))
-    incoming_mail_server.uid('STORE', mail['mailserver_email_uid'], '+FLAGS', '(\Deleted)')
+    incoming_mail_server.uid('STORE', mail['mailserver_email_uid'], '+FLAGS', r'(\Deleted)')
     incoming_mail_server.expunge()
 
 
 def parse_uid(data):
-    pattern_uid = re.compile('\d+ \(UID (?P<uid>\d+)\)')
+    pattern_uid = re.compile(r'\d+ \(UID (?P<uid>\d+)\)')
     match = pattern_uid.match(data)
     return match.group('uid')
 
@@ -228,13 +228,13 @@ def log_statistics():
     moving_errors = statistics['mails_processed'] - statistics['mails_in_trash'] - statistics['mails_wrong_sender']
     total_warnings = loading_errors + processing_errors + moving_errors
     message = "Executed "
-    message += "without warnings " if total_warnings is 0 else "with " + str(total_warnings) + " warnings "
+    message += "without warnings " if total_warnings == 0 else "with " + str(total_warnings) + " warnings "
     message += "in " + str(run_time.total_seconds()) + " seconds. "
     message += "Found " + str(total_mails) + " emails in inbox"
-    message += ". " if wrong_sender_count is 0 else " with " + str(wrong_sender_count) + " emails from wrong senders. "
+    message += ". " if wrong_sender_count == 0 else " with " + str(wrong_sender_count) + " emails from wrong senders. "
     message += "Processed " + str(statistics['mails_processed']) + \
                " emails, replied to " + str(total_mails - wrong_sender_count) + " emails. "
-    if total_warnings is not 0:
+    if total_warnings != 0:
         message += "Encountered " + str(loading_errors) + " errors while loading emails, " + \
                    str(processing_errors) + " errors while processing emails and " + \
                    str(moving_errors) + " errors while moving emails to trash."
