@@ -59,14 +59,29 @@ The required configuration items for the individual sections are listed below.
 | Configuration Item | Description |
 | ------------------ | ----------- |
 | mail.request.from  | The sender email address to check new mails against. Use `*` or leave empty to respond to all emails. |
-| mail.reply.subject | The subject line of the reply email. |
-| mail.reply.body    | The plain text body of the reply email. This is used only if no `responseBody.html` file is present. |
+| mail.reply.subject | The subject line of the reply email. Supports template variables (see below). |
+| mail.reply.body    | The plain text body of the reply email. This is used only if no `responseBody.html` file is present. Supports template variables (see below). |
 
 **Section [general settings]** (optional)
 
 | Configuration Item | Description |
 | ------------------ | ----------- |
 | debug              | Enable debug logging. Set to `true`, `1`, `yes`, or `on` to enable. Default is `false`. |
+
+### Template Variables
+
+You can use template variables in both the subject and body of your reply emails. These variables will be replaced with content from the incoming email:
+
+| Variable | Description |
+| -------- | ----------- |
+| `[SUBJECT]` | The subject line of the incoming email |
+| `[BODY]` | The body text of the incoming email |
+
+Example usage in `autoresponder.config.ini`:
+```ini
+mail.reply.subject = Re: [SUBJECT]
+mail.reply.body = Thank you for your email about "[SUBJECT]". We have received your message: [BODY]
+```
 
 ### HTML Email Support
 
@@ -76,14 +91,18 @@ To send HTML formatted emails instead of plain text:
 2. Add your HTML content to this file
 3. The script will automatically detect and use the HTML file
 4. Both HTML and plain text versions will be sent (multipart email)
+5. Template variables work in HTML files too!
 
 Example `responseBody.html`:
 ```html
 <html>
 <body>
-<h1>Automatic Reply</h1>
+<h1>Re: [SUBJECT]</h1>
 <p>Thank you for your email!</p>
-<p>We have received your message and will respond <strong>as soon as possible</strong>.</p>
+<p>We have received your message:</p>
+<blockquote style="border-left: 3px solid #ccc; padding-left: 10px;">
+[BODY]
+</blockquote>
 <br>
 <p>Best regards,<br>
 Your Support Team</p>

@@ -285,6 +285,10 @@ def reply_to_email(mail):
     
     log_debug("Sending reply to: " + str(receiver_email))
     
+    # Replace template variables in subject and body
+    reply_subject = replace_template_variables(config['reply.subject'], mail)
+    reply_body = replace_template_variables(config['reply.body'], mail)
+    
     # Create appropriate message type based on content
     if config.get('reply.body.is_html', False):
         # Create HTML email
@@ -292,22 +296,22 @@ def reply_to_email(mail):
         from email.mime.text import MIMEText
         
         message = MIMEMultipart('alternative')
-        message['Subject'] = config['reply.subject']
+        message['Subject'] = reply_subject
         message['To'] = receiver_email
         message['From'] = email.utils.formataddr((
             cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
         
         # Create plain text version (strip HTML tags for basic plain text)
-        plain_text = re.sub('<[^<]+?>', '', config['reply.body'])
+        plain_text = re.sub('<[^<]+?>', '', reply_body)
         part1 = MIMEText(plain_text, 'plain', 'utf-8')
-        part2 = MIMEText(config['reply.body'], 'html', 'utf-8')
+        part2 = MIMEText(reply_body, 'html', 'utf-8')
         
         message.attach(part1)
         message.attach(part2)
     else:
         # Create plain text email
-        message = email.mime.text.MIMEText(config['reply.body'], 'plain', 'utf-8')
-        message['Subject'] = config['reply.subject']
+        message = email.mime.text.MIMEText(reply_body, 'plain', 'utf-8')
+        message['Subject'] = reply_subject
         message['To'] = receiver_email
         message['From'] = email.utils.formataddr((
             cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
@@ -332,6 +336,72 @@ def parse_uid(data):
     pattern_uid = re.compile(r'\d+ \(UID (?P<uid>\d+)\)')
     match = pattern_uid.match(data)
     return match.group('uid')
+
+
+def get_email_body(mail):
+    """Extract the body text from an email message."""
+    body = ""
+    
+    if mail.is_multipart():
+        # Walk through all parts
+        for part in mail.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get('Content-Disposition', ''))
+            
+            # Skip attachments
+            if 'attachment' in content_disposition:
+                continue
+                
+            # Get text/plain and text/html parts
+            if content_type == 'text/plain':
+                try:
+                    body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                    break  # Prefer plain text
+                except:
+                    pass
+            elif content_type == 'text/html' and not body:
+                try:
+                    html_body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                    # Simple HTML to text conversion
+                    body = re.sub('<[^<]+?>', '', html_body)
+                except:
+                    pass
+    else:
+        # Not multipart - just get the payload
+        try:
+            body = mail.get_payload(decode=True).decode('utf-8', errors='ignore')
+        except:
+            body = str(mail.get_payload())
+    
+    return body.strip()
+
+
+def replace_template_variables(text, mail):
+    """Replace template variables with actual values from the email."""
+    # Get original subject
+    subject = mail.get('Subject', '')
+    if subject:
+        decoded_subject = email.header.decode_header(subject)
+        subject_str = ''
+        for part, encoding in decoded_subject:
+            if isinstance(part, bytes):
+                subject_str += part.decode(encoding or 'utf-8', errors='ignore')
+            else:
+                subject_str += str(part)
+        subject = subject_str
+    
+    # Get original body
+    body = get_email_body(mail)
+    
+    # Replace variables
+    text = text.replace('[SUBJECT]', subject)
+    text = text.replace('[BODY]', body)
+    
+    # Also support lowercase variants
+    text = text.replace('[subject]', subject)
+    text = text.replace('[body]', body)
+    
+    return text
 
 
 def cast(obj, to_type, options=None):
