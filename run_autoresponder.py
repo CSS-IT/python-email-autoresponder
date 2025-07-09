@@ -70,6 +70,13 @@ def initialize_configuration():
             'reply.body': cast(config_file["mail content settings"]["mail.reply.body"], str).strip()
         }
         
+        # Add debug setting with default value False if not specified
+        try:
+            debug_value = config_file["general settings"]["debug"].lower()
+            config['debug'] = debug_value in ['true', '1', 'yes', 'on']
+        except (KeyError, AttributeError):
+            config['debug'] = False
+        
         # Check for external response body file
         config_dir = os.path.dirname(os.path.abspath(config_file_path))
         html_file = os.path.join(config_dir, "responseBody.html")
@@ -100,7 +107,9 @@ def check_folder_names():
 
 def connect_to_imap():
     try:
+        log_debug("Connecting to IMAP server " + config['in.host'] + ":" + config['in.port'])
         do_connect_to_imap()
+        log_debug("Successfully connected to IMAP server")
     except gaierror:
         shutdown_with_error("IMAP connection failed! Specified host not found.")
     except imaplib.IMAP4_SSL.error as e:
@@ -119,7 +128,9 @@ def do_connect_to_imap():
 
 def connect_to_smtp():
     try:
+        log_debug("Connecting to SMTP server " + config['out.host'] + ":" + config['out.port'])
         do_connect_to_smtp()
+        log_debug("Successfully connected to SMTP server")
     except gaierror:
         shutdown_with_error("SMTP connection failed! Specified host not found.")
     except smtplib.SMTPAuthenticationError as e:
@@ -143,6 +154,7 @@ def fetch_emails():
     (retcode, message_indices) = incoming_mail_server.search(None, 'ALL')
     if retcode == 'OK':
         messages = []
+        log_debug("Found " + str(len(message_indices[0].split())) + " emails in inbox")
         for message_index in message_indices[0].split():
             # get the actual message for the current index
             (retcode, data) = incoming_mail_server.fetch(message_index, '(RFC822)')
@@ -171,16 +183,21 @@ def process_email(mail):
         mail_from = email.header.decode_header(mail['From'])
         mail_sender = mail_from[-1]
         mail_sender = cast(mail_sender[0], str, 'UTF-8')
+        log_debug("Processing email from: " + mail_sender)
+        
         # Check if we should filter by sender or respond to all emails
         if config['request.from'] == '' or config['request.from'] == '*':
             # No filtering - respond to all emails
+            log_debug("No sender filter active - responding to email")
             reply_to_email(mail)
             delete_email(mail)
         elif config['request.from'] in mail_sender:
             # Filter by sender
+            log_debug("Sender matches filter '" + config['request.from'] + "' - responding to email")
             reply_to_email(mail)
             delete_email(mail)
         else:
+            log_debug("Sender does not match filter '" + config['request.from'] + "' - skipping email")
             statistics['mails_wrong_sender'] += 1
         statistics['mails_processed'] += 1
     except Exception as e:
@@ -189,6 +206,7 @@ def process_email(mail):
 
 def reply_to_email(mail):
     receiver_email = email.header.decode_header(mail['Reply-To'])[0][0]
+    log_debug("Sending reply to: " + str(receiver_email))
     
     # Create appropriate message type based on content
     if config.get('reply.body.is_html', False):
@@ -218,12 +236,15 @@ def reply_to_email(mail):
             cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
     
     outgoing_mail_server.sendmail(config['display.mail'], receiver_email, message.as_string())
+    log_debug("Reply sent successfully")
 
 
 def delete_email(mail):
+    log_debug("Moving email to trash folder")
     result = incoming_mail_server.uid('COPY', mail['mailserver_email_uid'], config['folders.trash'])
     if result[0] == "OK":
         statistics['mails_in_trash'] += 1
+        log_debug("Email moved to trash successfully")
     else:
         log_warning("Copying email to trash failed. Reason: " + str(result))
     incoming_mail_server.uid('STORE', mail['mailserver_email_uid'], '+FLAGS', r'(\Deleted)')
@@ -259,26 +280,32 @@ def log_warning(message):
     print("Warning! " + message)
 
 
+def log_debug(message):
+    if config and config.get('debug', False):
+        print("[DEBUG] " + message)
+
+
 def log_statistics():
-    run_time = datetime.datetime.now() - statistics['start_time']
-    total_mails = statistics['mails_total']
-    loading_errors = statistics['mails_loading_error']
-    wrong_sender_count = statistics['mails_wrong_sender']
-    processing_errors = total_mails - statistics['mails_processed']
-    moving_errors = statistics['mails_processed'] - statistics['mails_in_trash'] - statistics['mails_wrong_sender']
-    total_warnings = loading_errors + processing_errors + moving_errors
-    message = "Executed "
-    message += "without warnings " if total_warnings == 0 else "with " + str(total_warnings) + " warnings "
-    message += "in " + str(run_time.total_seconds()) + " seconds. "
-    message += "Found " + str(total_mails) + " emails in inbox"
-    message += ". " if wrong_sender_count == 0 else " with " + str(wrong_sender_count) + " emails from wrong senders. "
-    message += "Processed " + str(statistics['mails_processed']) + \
-               " emails, replied to " + str(total_mails - wrong_sender_count) + " emails. "
-    if total_warnings != 0:
-        message += "Encountered " + str(loading_errors) + " errors while loading emails, " + \
-                   str(processing_errors) + " errors while processing emails and " + \
-                   str(moving_errors) + " errors while moving emails to trash."
-    print(message)
+    if config.get('debug', False):
+        run_time = datetime.datetime.now() - statistics['start_time']
+        total_mails = statistics['mails_total']
+        loading_errors = statistics['mails_loading_error']
+        wrong_sender_count = statistics['mails_wrong_sender']
+        processing_errors = total_mails - statistics['mails_processed']
+        moving_errors = statistics['mails_processed'] - statistics['mails_in_trash'] - statistics['mails_wrong_sender']
+        total_warnings = loading_errors + processing_errors + moving_errors
+        message = "Executed "
+        message += "without warnings " if total_warnings == 0 else "with " + str(total_warnings) + " warnings "
+        message += "in " + str(run_time.total_seconds()) + " seconds. "
+        message += "Found " + str(total_mails) + " emails in inbox"
+        message += ". " if wrong_sender_count == 0 else " with " + str(wrong_sender_count) + " emails from wrong senders. "
+        message += "Processed " + str(statistics['mails_processed']) + \
+                   " emails, replied to " + str(total_mails - wrong_sender_count) + " emails. "
+        if total_warnings != 0:
+            message += "Encountered " + str(loading_errors) + " errors while loading emails, " + \
+                       str(processing_errors) + " errors while processing emails and " + \
+                       str(moving_errors) + " errors while moving emails to trash."
+        print(message)
 
 
 def display_help_text():

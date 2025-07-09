@@ -1,7 +1,7 @@
 # Python E-Mail Autoresponder
 
-Simple python script that connects to a mail server via IMAP and SMTP and replies to 
-all emails in the inbox coming from a certain sender address using the Reply-To header.
+Simple python script that connects to a mail server via IMAP and SMTP and replies to emails in the inbox using the Reply-To header.
+You can filter by sender address or respond to all emails. Supports HTML formatted responses.
 Mails that have been replied to are deleted afterwards.
 
 ### Dependencies
@@ -48,14 +48,44 @@ The required configuration items for the individual sections are listed below.
 | mailserver.outgoing.smtp.host     | The hostname, domain or IP of the SMTP server for sending the reply. |
 | mailserver.outgoing.smtp.port.tls | The port to use for TLS communication with the SMTP server. |
 | mailserver.folders.inbox.name     | The name of the inbox folder, normally this is "Inbox". |
+| mailserver.folders.trash.name     | The name of the trash folder, normally this is "Trash" or "Deleted Items". |
 
 **Section [mail content settings]**
 
 | Configuration Item | Description |
 | ------------------ | ----------- |
-| mail.request.from  | The sender email address to check new mails against. If an email is found in the inbox with this sender address, a reply is triggered. |
+| mail.request.from  | The sender email address to check new mails against. Use `*` or leave empty to respond to all emails. |
 | mail.reply.subject | The subject line of the reply email. |
-| mail.reply.body    | The plain text body of the reply email. |
+| mail.reply.body    | The plain text body of the reply email. This is used only if no `responseBody.html` file is present. |
+
+**Section [general settings]** (optional)
+
+| Configuration Item | Description |
+| ------------------ | ----------- |
+| debug              | Enable debug logging. Set to `true`, `1`, `yes`, or `on` to enable. Default is `false`. |
+
+### HTML Email Support
+
+To send HTML formatted emails instead of plain text:
+
+1. Create a file named `responseBody.html` in the same directory as your `autoresponder.config.ini`
+2. Add your HTML content to this file
+3. The script will automatically detect and use the HTML file
+4. Both HTML and plain text versions will be sent (multipart email)
+
+Example `responseBody.html`:
+```html
+<html>
+<body>
+<h1>Automatic Reply</h1>
+<p>Thank you for your email!</p>
+<p>We have received your message and will respond <strong>as soon as possible</strong>.</p>
+<br>
+<p>Best regards,<br>
+Your Support Team</p>
+</body>
+</html>
+```
 
 After configuring the project, you can run it manually to test if your configuration works.
 

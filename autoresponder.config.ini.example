@@ -1,3 +1,7 @@
+[general settings]
+# Set to true to enable debug logging, false to disable (default: false)
+debug = false
+
 [login credentials]
 mailserver.incoming.username = username@example.com
 mailserver.incoming.password = secret
@@ -15,5 +19,8 @@ mailserver.incoming.folders.inbox.name = Inbox
 mailserver.incoming.folders.trash.name = Trash
 
 [mail content settings]
-mail.request.from = sender-address@example.com or *
+# Filter by sender address or use * to respond to all emails
+mail.request.from = *
 mail.reply.subject = Message received
+# This body is only used if no responseBody.html file is present
+mail.reply.body = Thank you for your email. This is an automated response.
