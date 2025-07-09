@@ -15,11 +15,5 @@ mailserver.incoming.folders.inbox.name = Inbox
 mailserver.incoming.folders.trash.name = Trash
 
 [mail content settings]
-mail.request.from = sender-address@example.com
+mail.request.from = sender-address@example.com or *
 mail.reply.subject = Message received
-mail.reply.body:
-    Hi there!
-
-    Thanks for your message.
-
-    The Python Reply-To Autoresponder

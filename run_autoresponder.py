@@ -69,6 +69,17 @@ def initialize_configuration():
             'reply.subject': cast(config_file["mail content settings"]["mail.reply.subject"], str).strip(),
             'reply.body': cast(config_file["mail content settings"]["mail.reply.body"], str).strip()
         }
+        
+        # Check for external response body file
+        config_dir = os.path.dirname(os.path.abspath(config_file_path))
+        html_file = os.path.join(config_dir, "responseBody.html")
+        
+        if os.path.isfile(html_file):
+            with open(html_file, 'r', encoding='UTF-8') as f:
+                config['reply.body'] = f.read()
+                config['reply.body.is_html'] = True
+        else:
+            config['reply.body.is_html'] = False
     except KeyError as e:
         shutdown_with_error("Configuration file is invalid! (Key not found: " + str(e) + ")")
 
@@ -160,7 +171,13 @@ def process_email(mail):
         mail_from = email.header.decode_header(mail['From'])
         mail_sender = mail_from[-1]
         mail_sender = cast(mail_sender[0], str, 'UTF-8')
-        if config['request.from'] in mail_sender:
+        # Check if we should filter by sender or respond to all emails
+        if config['request.from'] == '' or config['request.from'] == '*':
+            # No filtering - respond to all emails
+            reply_to_email(mail)
+            delete_email(mail)
+        elif config['request.from'] in mail_sender:
+            # Filter by sender
             reply_to_email(mail)
             delete_email(mail)
         else:
@@ -172,11 +189,34 @@ def process_email(mail):
 
 def reply_to_email(mail):
     receiver_email = email.header.decode_header(mail['Reply-To'])[0][0]
-    message = email.mime.text.MIMEText(config['reply.body'])
-    message['Subject'] = config['reply.subject']
-    message['To'] = receiver_email
-    message['From'] = email.utils.formataddr((
-        cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+    
+    # Create appropriate message type based on content
+    if config.get('reply.body.is_html', False):
+        # Create HTML email
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        
+        message = MIMEMultipart('alternative')
+        message['Subject'] = config['reply.subject']
+        message['To'] = receiver_email
+        message['From'] = email.utils.formataddr((
+            cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+        
+        # Create plain text version (strip HTML tags for basic plain text)
+        plain_text = re.sub('<[^<]+?>', '', config['reply.body'])
+        part1 = MIMEText(plain_text, 'plain', 'utf-8')
+        part2 = MIMEText(config['reply.body'], 'html', 'utf-8')
+        
+        message.attach(part1)
+        message.attach(part2)
+    else:
+        # Create plain text email
+        message = email.mime.text.MIMEText(config['reply.body'], 'plain', 'utf-8')
+        message['Subject'] = config['reply.subject']
+        message['To'] = receiver_email
+        message['From'] = email.utils.formataddr((
+            cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+    
     outgoing_mail_server.sendmail(config['display.mail'], receiver_email, message.as_string())
 
 
