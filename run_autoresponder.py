@@ -49,7 +49,8 @@ def get_config_file_path():
 
 def initialize_configuration():
     try:
-        config_file = configparser.ConfigParser()
+        # Use RawConfigParser to avoid interpolation of special characters like %
+        config_file = configparser.RawConfigParser()
         config_file.read(config_file_path, encoding="UTF-8")
         global config
         config = {
@@ -66,9 +67,14 @@ def initialize_configuration():
             'folders.inbox': cast(config_file["mail server settings"]["mailserver.incoming.folders.inbox.name"], str),
             'folders.trash': cast(config_file["mail server settings"]["mailserver.incoming.folders.trash.name"], str),
             'request.from': cast(config_file["mail content settings"]["mail.request.from"], str),
-            'reply.subject': cast(config_file["mail content settings"]["mail.reply.subject"], str).strip(),
-            'reply.body': cast(config_file["mail content settings"]["mail.reply.body"], str).strip()
+            'reply.subject': cast(config_file["mail content settings"]["mail.reply.subject"], str).strip()
         }
+        
+        # Try to get reply.body, but make it optional
+        try:
+            config['reply.body'] = cast(config_file["mail content settings"]["mail.reply.body"], str).strip()
+        except KeyError:
+            config['reply.body'] = ""
         
         # Add debug setting with default value False if not specified
         try:
@@ -99,10 +105,60 @@ def connect_to_mail_servers():
 def check_folder_names():
     (retcode, msg_count) = incoming_mail_server.select(config['folders.inbox'])
     if retcode != "OK":
+        list_available_folders()
         shutdown_with_error("Inbox folder does not exist: " + config['folders.inbox'])
     (retcode, msg_count) = incoming_mail_server.select(config['folders.trash'])
     if retcode != "OK":
+        list_available_folders()
         shutdown_with_error("Trash folder does not exist: " + config['folders.trash'])
+
+
+def list_available_folders():
+    print("\nAvailable IMAP folders on this server:")
+    print("=" * 40)
+    try:
+        # List all folders
+        retcode, folders = incoming_mail_server.list()
+        if retcode == 'OK':
+            for folder in folders:
+                # Parse folder name from IMAP response
+                folder_str = folder.decode('utf-8')
+                # Debug: show raw folder string
+                log_debug("Raw folder response: " + folder_str)
+                
+                # Try different parsing methods
+                folder_name = None
+                
+                # Method 1: Split by quotes
+                parts = folder_str.split('"')
+                if len(parts) >= 2:
+                    folder_name = parts[-2]
+                
+                # Method 2: If no quotes, try to find folder name after delimiter
+                if not folder_name or folder_name == ".":
+                    # Look for pattern like (\HasNoChildren) "." "INBOX"
+                    import re
+                    match = re.search(r'["\s]([^"\s]+)["]*$', folder_str.strip())
+                    if match:
+                        folder_name = match.group(1)
+                
+                # Method 3: Split by spaces and take last part
+                if not folder_name or folder_name == ".":
+                    parts = folder_str.strip().split()
+                    if parts:
+                        folder_name = parts[-1].strip('"')
+                
+                if folder_name and folder_name != ".":
+                    print("  - " + folder_name)
+                else:
+                    # Show the raw string if we couldn't parse it
+                    print("  - [Could not parse: " + folder_str + "]")
+                    
+        print("=" * 40)
+        print("Please update your config file with the correct folder names.")
+        print("Common trash folder names: Trash, Deleted, Deleted Items, Papierkorb, Corbeille\n")
+    except Exception as e:
+        print("Could not list folders: " + str(e))
 
 
 def connect_to_imap():
@@ -205,7 +261,28 @@ def process_email(mail):
 
 
 def reply_to_email(mail):
-    receiver_email = email.header.decode_header(mail['Reply-To'])[0][0]
+    # Try to get Reply-To header, fallback to From if not present
+    if mail.get('Reply-To'):
+        receiver_email = email.header.decode_header(mail['Reply-To'])[0][0]
+    else:
+        # Extract email from From header
+        from_header = email.header.decode_header(mail['From'])
+        from_str = ''
+        for part, encoding in from_header:
+            if isinstance(part, bytes):
+                from_str += part.decode(encoding or 'utf-8', errors='ignore')
+            else:
+                from_str += str(part)
+        
+        # Extract email address from string like "Name <email@example.com>"
+        import re
+        email_match = re.search(r'<(.+?)>', from_str)
+        if email_match:
+            receiver_email = email_match.group(1)
+        else:
+            # If no angle brackets, assume the whole string is the email
+            receiver_email = from_str.strip()
+    
     log_debug("Sending reply to: " + str(receiver_email))
     
     # Create appropriate message type based on content
@@ -271,7 +348,13 @@ def shutdown_with_error(message):
     message = "Error! " + str(message)
     message += "\nCurrent configuration file path: '" + str(config_file_path) + "'."
     if config is not None:
-        message += "\nCurrent configuration: " + str(config)
+        # Create a safe version of config without passwords
+        safe_config = config.copy()
+        if 'in.pw' in safe_config:
+            safe_config['in.pw'] = '******'
+        if 'out.pw' in safe_config:
+            safe_config['out.pw'] = '******'
+        message += "\nCurrent configuration: " + str(safe_config)
     print(message)
     shutdown(-1)
 

@@ -10,6 +10,10 @@ This script runs on python3 and is written for the purpose of running as a cronj
 
 To run it you'll only need  **python3**.
 
+### Important Notes on Passwords
+
+This script supports strong passwords with special characters. The configuration file uses raw parsing, so you can use any characters in your passwords including `%`, `$`, `@`, etc. without escaping.
+
 ### Installation
 
 To install, simply download a copy of the project (see screenshot below) and extract it to whatever folder you like.
