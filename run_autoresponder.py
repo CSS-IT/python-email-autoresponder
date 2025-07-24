@@ -261,63 +261,84 @@ def process_email(mail):
 
 
 def reply_to_email(mail):
-    # Try to get Reply-To header, fallback to From if not present
-    if mail.get('Reply-To'):
-        receiver_email = email.header.decode_header(mail['Reply-To'])[0][0]
-    else:
-        # Extract email from From header
-        from_header = email.header.decode_header(mail['From'])
-        from_str = ''
-        for part, encoding in from_header:
-            if isinstance(part, bytes):
-                from_str += part.decode(encoding or 'utf-8', errors='ignore')
+    try:
+        # Try to get Reply-To header, fallback to From if not present
+        if mail.get('Reply-To'):
+            # Decode Reply-To header
+            reply_to_header = email.header.decode_header(mail['Reply-To'])
+            if reply_to_header and reply_to_header[0]:
+                receiver_email = str(reply_to_header[0][0])
+                # Clean up the email address
+                receiver_email = receiver_email.strip()
+                # Remove any angle brackets if present
+                if '<' in receiver_email and '>' in receiver_email:
+                    email_match = re.search(r'<(.+?)>', receiver_email)
+                    if email_match:
+                        receiver_email = email_match.group(1)
             else:
-                from_str += str(part)
-        
-        # Extract email address from string like "Name <email@example.com>"
-        import re
-        email_match = re.search(r'<(.+?)>', from_str)
-        if email_match:
-            receiver_email = email_match.group(1)
+                raise ValueError("Empty Reply-To header")
         else:
-            # If no angle brackets, assume the whole string is the email
-            receiver_email = from_str.strip()
-    
-    log_debug("Sending reply to: " + str(receiver_email))
-    
-    # Replace template variables in subject and body
-    reply_subject = replace_template_variables(config['reply.subject'], mail)
-    reply_body = replace_template_variables(config['reply.body'], mail)
-    
-    # Create appropriate message type based on content
-    if config.get('reply.body.is_html', False):
-        # Create HTML email
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
+            # Extract email from From header
+            from_header = email.header.decode_header(mail['From'])
+            from_str = ''
+            for part, encoding in from_header:
+                if isinstance(part, bytes):
+                    from_str += part.decode(encoding or 'utf-8', errors='ignore')
+                else:
+                    from_str += str(part)
+            
+            # Extract email address from string like "Name <email@example.com>"
+            email_match = re.search(r'<(.+?)>', from_str)
+            if email_match:
+                receiver_email = email_match.group(1)
+            else:
+                # If no angle brackets, assume the whole string is the email
+                receiver_email = from_str.strip()
         
-        message = MIMEMultipart('alternative')
-        message['Subject'] = reply_subject
-        message['To'] = receiver_email
-        message['From'] = email.utils.formataddr((
-            cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+        # Validate email format (basic check)
+        if not receiver_email or '@' not in receiver_email:
+            raise ValueError("Invalid email format: " + str(receiver_email))
         
-        # Create plain text version (strip HTML tags for basic plain text)
-        plain_text = re.sub('<[^<]+?>', '', reply_body)
-        part1 = MIMEText(plain_text, 'plain', 'utf-8')
-        part2 = MIMEText(reply_body, 'html', 'utf-8')
+        log_debug("Sending reply to: " + str(receiver_email))
         
-        message.attach(part1)
-        message.attach(part2)
-    else:
-        # Create plain text email
-        message = email.mime.text.MIMEText(reply_body, 'plain', 'utf-8')
-        message['Subject'] = reply_subject
-        message['To'] = receiver_email
-        message['From'] = email.utils.formataddr((
-            cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
-    
-    outgoing_mail_server.sendmail(config['display.mail'], receiver_email, message.as_string())
-    log_debug("Reply sent successfully")
+        # Replace template variables in subject and body
+        reply_subject = replace_template_variables(config['reply.subject'], mail)
+        reply_body = replace_template_variables(config['reply.body'], mail)
+        
+        # Create appropriate message type based on content
+        if config.get('reply.body.is_html', False):
+            # Create HTML email
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            
+            message = MIMEMultipart('alternative')
+            message['Subject'] = reply_subject
+            message['To'] = receiver_email
+            message['From'] = email.utils.formataddr((
+                cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+            
+            # Create plain text version (strip HTML tags for basic plain text)
+            plain_text = re.sub('<[^<]+?>', '', reply_body)
+            part1 = MIMEText(plain_text, 'plain', 'utf-8')
+            part2 = MIMEText(reply_body, 'html', 'utf-8')
+            
+            message.attach(part1)
+            message.attach(part2)
+        else:
+            # Create plain text email
+            message = email.mime.text.MIMEText(reply_body, 'plain', 'utf-8')
+            message['Subject'] = reply_subject
+            message['To'] = receiver_email
+            message['From'] = email.utils.formataddr((
+                cast(email.header.Header(config['display.name'], 'utf-8'), str), config['display.mail']))
+        
+        outgoing_mail_server.sendmail(config['display.mail'], receiver_email, message.as_string())
+        log_debug("Reply sent successfully")
+        
+    except Exception as e:
+        # If we can't send the reply due to invalid email address, just log it
+        log_warning("Could not send reply due to invalid recipient address: " + str(e))
+        # Don't re-raise - we still want to delete the email
 
 
 def delete_email(mail):
